@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { clearPluginCommands, registerPluginCommand } from "../../../../src/plugins/commands.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   baseConfig,
   baseRuntime,
@@ -7,18 +6,35 @@ import {
   resetDiscordProviderMonitorMocks,
 } from "../../../../test/helpers/extensions/discord-provider.test-support.js";
 
-const { createDiscordNativeCommandMock, clientHandleDeployRequestMock, monitorLifecycleMock } =
-  getProviderMonitorTestMocks();
+const {
+  createDiscordNativeCommandMock,
+  clientHandleDeployRequestMock,
+  getPluginCommandSpecsMock,
+  monitorLifecycleMock,
+} = getProviderMonitorTestMocks();
 
 describe("monitorDiscordProvider real plugin registry", () => {
   beforeEach(() => {
-    clearPluginCommands();
+    vi.resetModules();
     resetDiscordProviderMonitorMocks({
       nativeCommands: [{ name: "status", description: "Status", acceptsArgs: false }],
+    });
+    vi.doMock("../probe.js", () => ({
+      fetchDiscordApplicationId: async () => "app-1",
+    }));
+    vi.doMock("../token.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../token.js")>();
+      return {
+        ...actual,
+        normalizeDiscordToken: (value?: string) => value,
+      };
     });
   });
 
   it("registers plugin commands from the real registry as native Discord commands", async () => {
+    const { clearPluginCommands, getPluginCommandSpecs, registerPluginCommand } =
+      await import("../../../../src/plugins/commands.js");
+    clearPluginCommands();
     expect(
       registerPluginCommand("demo-plugin", {
         name: "pair",
@@ -28,6 +44,9 @@ describe("monitorDiscordProvider real plugin registry", () => {
         handler: async ({ args }) => ({ text: `paired:${args ?? ""}` }),
       }),
     ).toEqual({ ok: true });
+    getPluginCommandSpecsMock.mockImplementation((provider?: string) =>
+      getPluginCommandSpecs(provider),
+    );
 
     const { monitorDiscordProvider } = await import("./provider.js");
 

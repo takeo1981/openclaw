@@ -38,7 +38,7 @@ export function getLoadWebMediaMock(): AnyMock {
   return loadWebMedia;
 }
 
-vi.doMock("openclaw/plugin-sdk/web-media", () => ({
+vi.mock("openclaw/plugin-sdk/web-media", () => ({
   loadWebMedia,
 }));
 
@@ -57,7 +57,7 @@ const { loadConfig, resolveStorePathMock } = vi.hoisted(
 export function getLoadConfigMock(): AnyMock {
   return loadConfig;
 }
-vi.doMock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
+vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
   return {
     ...actual,
@@ -87,7 +87,7 @@ export function getUpsertChannelPairingRequestMock(): AnyAsyncMock {
   return upsertChannelPairingRequest;
 }
 
-vi.doMock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => {
+vi.mock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/conversation-runtime")>();
   return {
     ...actual,
@@ -114,20 +114,26 @@ const replySpyHoisted = vi.hoisted(() => ({
 const dispatchReplyHoisted = vi.hoisted(() => ({
   dispatchReplyWithBufferedBlockDispatcher: vi.fn<DispatchReplyWithBufferedBlockDispatcherFn>(
     async (params: DispatchReplyHarnessParams) => {
-      await params.dispatcherOptions?.typingCallbacks?.onReplyStart?.();
       const reply: ReplyPayload | ReplyPayload[] | undefined = await replySpyHoisted.replySpy(
         params.ctx,
         params.replyOptions,
       );
       const payloads: ReplyPayload[] =
         reply === undefined ? [] : Array.isArray(reply) ? reply : [reply];
+      if (payloads.length > 0) {
+        await params.dispatcherOptions?.typingCallbacks?.onReplyStart?.();
+      }
       const counts: DispatchReplyWithBufferedBlockDispatcherResult["counts"] = {
         block: 0,
         final: payloads.length,
         tool: 0,
       };
       for (const payload of payloads) {
-        await params.dispatcherOptions?.deliver?.(payload, { kind: "final" });
+        const effectivePayload = applyResponsePrefixToPayload(
+          payload,
+          params.dispatcherOptions?.responsePrefix,
+        );
+        await params.dispatcherOptions?.deliver?.(effectivePayload, { kind: "final" });
       }
       return { queuedFinal: payloads.length > 0, counts };
     },
@@ -138,10 +144,77 @@ export const replySpy = replySpyHoisted.replySpy;
 export const dispatchReplyWithBufferedBlockDispatcher =
   dispatchReplyHoisted.dispatchReplyWithBufferedBlockDispatcher;
 
-vi.doMock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
+function resolveTestModelRef(
+  raw: string | undefined,
+  fallbackProvider = "openai",
+): { provider: string; model: string } {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return { provider: fallbackProvider, model: "gpt-5.2" };
+  }
+  const slash = trimmed.indexOf("/");
+  if (slash > 0 && slash < trimmed.length - 1) {
+    return {
+      provider: trimmed.slice(0, slash),
+      model: trimmed.slice(slash + 1),
+    };
+  }
+  return { provider: fallbackProvider, model: trimmed };
+}
+
+function buildTestModelsProviderData(cfg: OpenClawConfig, _agentId?: string) {
+  const defaults = cfg.agents?.defaults;
+  const modelSetting = defaults?.model;
+  const defaultRaw =
+    typeof modelSetting === "string"
+      ? modelSetting
+      : typeof modelSetting === "object"
+        ? modelSetting.primary
+        : undefined;
+  const resolvedDefault = resolveTestModelRef(defaultRaw);
+
+  const byProvider = new Map<string, Set<string>>();
+  const add = (provider: string, model: string) => {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const normalizedModel = model.trim();
+    if (!normalizedProvider || !normalizedModel) {
+      return;
+    }
+    const existing = byProvider.get(normalizedProvider) ?? new Set<string>();
+    existing.add(normalizedModel);
+    byProvider.set(normalizedProvider, existing);
+  };
+
+  add(resolvedDefault.provider, resolvedDefault.model);
+  for (const key of Object.keys(defaults?.models ?? {})) {
+    const ref = resolveTestModelRef(key, resolvedDefault.provider);
+    add(ref.provider, ref.model);
+  }
+
+  const providers = [...byProvider.keys()].toSorted();
+  return { byProvider, providers, resolvedDefault };
+}
+
+function applyResponsePrefixToPayload(
+  payload: ReplyPayload,
+  responsePrefix: string | undefined,
+): ReplyPayload {
+  const prefix = responsePrefix?.trim();
+  if (!prefix || typeof payload.text !== "string") {
+    return payload;
+  }
+  if (!payload.text.trim() || payload.text.startsWith(prefix)) {
+    return payload;
+  }
+  return { ...payload, text: `${prefix} ${payload.text}` };
+}
+
+vi.mock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/reply-runtime")>();
   return {
     ...actual,
+    buildModelsProviderData: async (cfg: OpenClawConfig, agentId?: string) =>
+      buildTestModelsProviderData(cfg, agentId),
     listSkillCommandsForAgents: skillCommandListHoisted.listSkillCommandsForAgents,
     getReplyFromConfig: replySpyHoisted.replySpy,
     __replySpy: replySpyHoisted.replySpy,
@@ -156,7 +229,7 @@ const systemEventsHoisted = vi.hoisted(() => ({
 export const enqueueSystemEventSpy: MockFn<TelegramBotDeps["enqueueSystemEvent"]> =
   systemEventsHoisted.enqueueSystemEventSpy;
 
-vi.doMock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
+vi.mock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/infra-runtime")>();
   return {
     ...actual,
@@ -169,7 +242,7 @@ const sentMessageCacheHoisted = vi.hoisted(() => ({
 }));
 export const wasSentByBot = sentMessageCacheHoisted.wasSentByBot;
 
-vi.doMock("./sent-message-cache.js", () => ({
+vi.mock("./sent-message-cache.js", () => ({
   wasSentByBot: sentMessageCacheHoisted.wasSentByBot,
   recordSentMessage: vi.fn(),
   clearSentMessageCache: vi.fn(),
@@ -386,16 +459,22 @@ beforeEach(() => {
   dispatchReplyWithBufferedBlockDispatcher.mockReset();
   dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
     async (params: DispatchReplyHarnessParams) => {
-      await params.dispatcherOptions?.typingCallbacks?.onReplyStart?.();
       const reply = await replySpy(params.ctx, params.replyOptions);
       const payloads = reply === undefined ? [] : Array.isArray(reply) ? reply : [reply];
+      if (payloads.length > 0) {
+        await params.dispatcherOptions?.typingCallbacks?.onReplyStart?.();
+      }
       const counts: DispatchReplyWithBufferedBlockDispatcherResult["counts"] = {
         block: 0,
         final: payloads.length,
         tool: 0,
       };
       for (const payload of payloads) {
-        await params.dispatcherOptions?.deliver?.(payload, { kind: "final" });
+        const effectivePayload = applyResponsePrefixToPayload(
+          payload,
+          params.dispatcherOptions?.responsePrefix,
+        );
+        await params.dispatcherOptions?.deliver?.(effectivePayload, { kind: "final" });
       }
       return { queuedFinal: payloads.length > 0, counts };
     },
