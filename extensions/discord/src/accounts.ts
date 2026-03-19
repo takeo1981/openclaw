@@ -1,6 +1,5 @@
 import {
-  createAccountActionGate,
-  createAccountListHelpers,
+  DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
   resolveAccountEntry,
   type OpenClawConfig,
@@ -8,6 +7,23 @@ import {
   type DiscordActionConfig,
 } from "./runtime-api.js";
 import { resolveDiscordToken } from "./token.js";
+
+function createAccountActionGate<T extends Record<string, boolean | undefined>>(params: {
+  baseActions?: T;
+  accountActions?: T;
+}): (key: keyof T, defaultValue?: boolean) => boolean {
+  return (key, defaultValue = true) => {
+    const accountValue = params.accountActions?.[key];
+    if (accountValue !== undefined) {
+      return accountValue;
+    }
+    const baseValue = params.baseActions?.[key];
+    if (baseValue !== undefined) {
+      return baseValue;
+    }
+    return defaultValue;
+  };
+}
 
 export type ResolvedDiscordAccount = {
   accountId: string;
@@ -18,9 +34,43 @@ export type ResolvedDiscordAccount = {
   config: DiscordAccountConfig;
 };
 
-const { listAccountIds, resolveDefaultAccountId } = createAccountListHelpers("discord");
-export const listDiscordAccountIds = listAccountIds;
-export const resolveDefaultDiscordAccountId = resolveDefaultAccountId;
+function listConfiguredDiscordAccountIds(cfg: OpenClawConfig): string[] {
+  const accounts = cfg.channels?.discord?.accounts;
+  if (!accounts || typeof accounts !== "object") {
+    return [];
+  }
+  return [
+    ...new Set(
+      Object.keys(accounts)
+        .filter(Boolean)
+        .map((id) => normalizeAccountId(id)),
+    ),
+  ];
+}
+
+export function listDiscordAccountIds(cfg: OpenClawConfig): string[] {
+  const ids = listConfiguredDiscordAccountIds(cfg);
+  if (ids.length === 0) {
+    return [DEFAULT_ACCOUNT_ID];
+  }
+  return ids.toSorted((a, b) => a.localeCompare(b));
+}
+
+export function resolveDefaultDiscordAccountId(cfg: OpenClawConfig): string {
+  const preferred = cfg.channels?.discord?.defaultAccount;
+  const normalizedPreferred = typeof preferred === "string" ? normalizeAccountId(preferred) : "";
+  if (normalizedPreferred) {
+    const ids = listDiscordAccountIds(cfg);
+    if (ids.includes(normalizedPreferred)) {
+      return normalizedPreferred;
+    }
+  }
+  const ids = listDiscordAccountIds(cfg);
+  if (ids.includes(DEFAULT_ACCOUNT_ID)) {
+    return DEFAULT_ACCOUNT_ID;
+  }
+  return ids[0] ?? DEFAULT_ACCOUNT_ID;
+}
 
 export function resolveDiscordAccountConfig(
   cfg: OpenClawConfig,

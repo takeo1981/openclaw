@@ -67,15 +67,22 @@ const configSessionsMocks = vi.hoisted(() => ({
 const readSessionUpdatedAt = configSessionsMocks.readSessionUpdatedAt;
 const resolveStorePath = configSessionsMocks.resolveStorePath;
 
-vi.mock("../send.js", () => ({
-  addRoleDiscord: vi.fn(),
-  reactMessageDiscord: sendMocks.reactMessageDiscord,
-  removeReactionDiscord: sendMocks.removeReactionDiscord,
-}));
+vi.mock("../send.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../send.js")>();
+  return {
+    ...actual,
+    reactMessageDiscord: sendMocks.reactMessageDiscord,
+    removeReactionDiscord: sendMocks.removeReactionDiscord,
+  };
+});
 
-vi.mock("../send.messages.js", () => ({
-  editMessageDiscord: deliveryMocks.editMessageDiscord,
-}));
+vi.mock("../send.messages.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../send.messages.js")>();
+  return {
+    ...actual,
+    editMessageDiscord: deliveryMocks.editMessageDiscord,
+  };
+});
 
 vi.mock("../draft-stream.js", () => ({
   createDiscordDraftStream: deliveryMocks.createDiscordDraftStream,
@@ -117,10 +124,14 @@ vi.mock("../../../../src/channels/session.js", () => ({
   recordInboundSession,
 }));
 
-vi.mock("../../../../src/config/sessions.js", () => ({
-  readSessionUpdatedAt: configSessionsMocks.readSessionUpdatedAt,
-  resolveStorePath: configSessionsMocks.resolveStorePath,
-}));
+vi.mock("../../../../src/config/sessions.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../src/config/sessions.js")>();
+  return {
+    ...actual,
+    readSessionUpdatedAt: configSessionsMocks.readSessionUpdatedAt,
+    resolveStorePath: configSessionsMocks.resolveStorePath,
+  };
+});
 
 const { processDiscordMessage } = await import("./message-handler.process.js");
 
