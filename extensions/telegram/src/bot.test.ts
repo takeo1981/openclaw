@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import type { PluginInteractiveTelegramHandlerContext } from "openclaw/plugin-sdk/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { expectChannelInboundContextContract as expectInboundContextContract } from "../../../src/channels/plugins/contracts/suites.js";
+import type { SessionEntry } from "../../../src/config/sessions.js";
 import {
   clearPluginInteractiveHandlers,
   registerPluginInteractiveHandler,
@@ -572,7 +573,9 @@ describe("createTelegramBot", () => {
   });
 
   it("resets overrides when selecting the configured default model", () => {
-    const entry: Record<string, unknown> = {
+    const entry: SessionEntry = {
+      sessionId: "session-1",
+      updatedAt: Date.now(),
       providerOverride: "anthropic",
       modelOverride: "claude-opus-4-6",
     };
