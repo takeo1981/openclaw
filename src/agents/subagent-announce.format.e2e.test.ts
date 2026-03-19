@@ -1,11 +1,21 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import {
+  clearRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshot,
+  type OpenClawConfig,
+} from "../config/config.js";
+import * as configSessions from "../config/sessions.js";
+import * as gatewayCall from "../gateway/call.js";
+import {
   __testing as sessionBindingServiceTesting,
   registerSessionBindingAdapter,
 } from "../infra/outbound/session-binding-service.js";
+import * as hookRunnerGlobal from "../plugins/hook-runner-global.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
+import * as piEmbedded from "./pi-embedded.js";
+import * as agentStep from "./tools/agent-step.js";
 
 type AgentCallRequest = { method?: string; params?: Record<string, unknown> };
 type RequesterResolution = {
@@ -41,6 +51,17 @@ type MockSubagentRun = {
 const agentSpy = vi.fn(async (_req: AgentCallRequest) => ({ runId: "run-main", status: "ok" }));
 const sendSpy = vi.fn(async (_req: AgentCallRequest) => ({ runId: "send-main", status: "ok" }));
 const sessionsDeleteSpy = vi.fn((_req: AgentCallRequest) => undefined);
+const loadSessionStoreSpy = vi.spyOn(configSessions, "loadSessionStore");
+const resolveAgentIdFromSessionKeySpy = vi.spyOn(configSessions, "resolveAgentIdFromSessionKey");
+const resolveStorePathSpy = vi.spyOn(configSessions, "resolveStorePath");
+const resolveMainSessionKeySpy = vi.spyOn(configSessions, "resolveMainSessionKey");
+const callGatewaySpy = vi.spyOn(gatewayCall, "callGateway");
+const getGlobalHookRunnerSpy = vi.spyOn(hookRunnerGlobal, "getGlobalHookRunner");
+const readLatestAssistantReplySpy = vi.spyOn(agentStep, "readLatestAssistantReply");
+const isEmbeddedPiRunActiveSpy = vi.spyOn(piEmbedded, "isEmbeddedPiRunActive");
+const isEmbeddedPiRunStreamingSpy = vi.spyOn(piEmbedded, "isEmbeddedPiRunStreaming");
+const queueEmbeddedPiMessageSpy = vi.spyOn(piEmbedded, "queueEmbeddedPiMessage");
+const waitForEmbeddedPiRunEndSpy = vi.spyOn(piEmbedded, "waitForEmbeddedPiRunEnd");
 const readLatestAssistantReplyMock = vi.fn(
   async (_sessionKey?: string): Promise<string | undefined> => "raw subagent reply",
 );
@@ -81,7 +102,7 @@ const chatHistoryMock = vi.fn(async (_sessionKey?: string) => ({
   messages: [] as Array<unknown>,
 }));
 let sessionStore: Record<string, Record<string, unknown>> = {};
-let configOverride: ReturnType<(typeof import("../config/config.js"))["loadConfig"]> = {
+let configOverride: OpenClawConfig = {
   session: {
     mainKey: "main",
     scope: "per-sender",
@@ -103,6 +124,11 @@ async function getSingleAgentCallParams() {
   return call?.params ?? {};
 }
 
+function setConfigOverride(next: OpenClawConfig): void {
+  configOverride = next;
+  setRuntimeConfigSnapshot(configOverride);
+}
+
 function loadSessionStoreFixture(): Record<string, Record<string, unknown>> {
   return new Proxy(sessionStore, {
     get(target, key: string | symbol) {
@@ -114,63 +140,8 @@ function loadSessionStoreFixture(): Record<string, Record<string, unknown>> {
   });
 }
 
-vi.mock("../gateway/call.js", () => ({
-  callGateway: vi.fn(async (req: unknown) => {
-    const typed = req as { method?: string; params?: { message?: string; sessionKey?: string } };
-    if (typed.method === "agent") {
-      return await agentSpy(typed);
-    }
-    if (typed.method === "send") {
-      return await sendSpy(typed);
-    }
-    if (typed.method === "agent.wait") {
-      return { status: "error", startedAt: 10, endedAt: 20, error: "boom" };
-    }
-    if (typed.method === "chat.history") {
-      return await chatHistoryMock(typed.params?.sessionKey);
-    }
-    if (typed.method === "sessions.patch") {
-      return {};
-    }
-    if (typed.method === "sessions.delete") {
-      sessionsDeleteSpy(typed);
-      return {};
-    }
-    return {};
-  }),
-}));
-
-vi.mock("./tools/agent-step.js", () => ({
-  readLatestAssistantReply: readLatestAssistantReplyMock,
-}));
-
-vi.mock("../config/sessions.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../config/sessions.js")>();
-  return {
-    ...actual,
-    loadSessionStore: vi.fn(() => loadSessionStoreFixture()),
-    resolveAgentIdFromSessionKey: () => "main",
-    resolveStorePath: () => "/tmp/sessions.json",
-    resolveMainSessionKey: () => "agent:main:main",
-    readSessionUpdatedAt: vi.fn(() => undefined),
-    recordSessionMetaFromInbound: vi.fn().mockResolvedValue(undefined),
-  };
-});
-
-vi.mock("./pi-embedded.js", () => embeddedRunMock);
-
 vi.mock("./subagent-registry.js", () => subagentRegistryMock);
-vi.mock("../plugins/hook-runner-global.js", () => ({
-  getGlobalHookRunner: () => hookRunnerMock,
-}));
-
-vi.mock("../config/config.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../config/config.js")>();
-  return {
-    ...actual,
-    loadConfig: () => configOverride,
-  };
-});
+vi.mock("./subagent-registry-runtime.js", () => subagentRegistryMock);
 
 describe("subagent announce formatting", () => {
   let previousFastTestEnv: string | undefined;
@@ -189,6 +160,7 @@ describe("subagent announce formatting", () => {
   });
 
   afterAll(() => {
+    clearRuntimeConfigSnapshot();
     if (previousFastTestEnv === undefined) {
       delete process.env.OPENCLAW_TEST_FAST;
       return;
@@ -206,6 +178,51 @@ describe("subagent announce formatting", () => {
       .mockClear()
       .mockImplementation(async (_req: AgentCallRequest) => ({ runId: "send-main", status: "ok" }));
     sessionsDeleteSpy.mockClear().mockImplementation((_req: AgentCallRequest) => undefined);
+    callGatewaySpy.mockReset().mockImplementation(async (req: unknown) => {
+      const typed = req as { method?: string; params?: { message?: string; sessionKey?: string } };
+      if (typed.method === "agent") {
+        return await agentSpy(typed);
+      }
+      if (typed.method === "send") {
+        return await sendSpy(typed);
+      }
+      if (typed.method === "agent.wait") {
+        return { status: "error", startedAt: 10, endedAt: 20, error: "boom" };
+      }
+      if (typed.method === "chat.history") {
+        return await chatHistoryMock(typed.params?.sessionKey);
+      }
+      if (typed.method === "sessions.patch") {
+        return {};
+      }
+      if (typed.method === "sessions.delete") {
+        sessionsDeleteSpy(typed);
+        return {};
+      }
+      return {};
+    });
+    loadSessionStoreSpy.mockReset().mockImplementation(() => loadSessionStoreFixture());
+    resolveAgentIdFromSessionKeySpy.mockReset().mockImplementation(() => "main");
+    resolveStorePathSpy.mockReset().mockImplementation(() => "/tmp/sessions.json");
+    resolveMainSessionKeySpy.mockReset().mockImplementation(() => "agent:main:main");
+    getGlobalHookRunnerSpy.mockReset().mockImplementation(() => hookRunnerMock);
+    readLatestAssistantReplySpy
+      .mockReset()
+      .mockImplementation(async (params) => await readLatestAssistantReplyMock(params?.sessionKey));
+    isEmbeddedPiRunActiveSpy
+      .mockReset()
+      .mockImplementation(() => embeddedRunMock.isEmbeddedPiRunActive());
+    isEmbeddedPiRunStreamingSpy
+      .mockReset()
+      .mockImplementation(() => embeddedRunMock.isEmbeddedPiRunStreaming());
+    queueEmbeddedPiMessageSpy
+      .mockReset()
+      .mockImplementation((...args) => embeddedRunMock.queueEmbeddedPiMessage(...args));
+    waitForEmbeddedPiRunEndSpy
+      .mockReset()
+      .mockImplementation(
+        async (...args) => await embeddedRunMock.waitForEmbeddedPiRunEnd(...args),
+      );
     embeddedRunMock.isEmbeddedPiRunActive.mockClear().mockReturnValue(false);
     embeddedRunMock.isEmbeddedPiRunStreaming.mockClear().mockReturnValue(false);
     embeddedRunMock.queueEmbeddedPiMessage.mockClear().mockReturnValue(false);
@@ -239,12 +256,12 @@ describe("subagent announce formatting", () => {
     setActivePluginRegistry(
       createTestRegistry([{ pluginId: "matrix", plugin: matrixPlugin, source: "test" }]),
     );
-    configOverride = {
+    setConfigOverride({
       session: {
         mainKey: "main",
         scope: "per-sender",
       },
-    };
+    });
   });
 
   it("sends instructional message to main agent with status and findings", async () => {

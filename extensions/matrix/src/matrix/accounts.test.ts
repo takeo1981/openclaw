@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getMatrixScopedEnvVarNames } from "../env-vars.js";
 import type { CoreConfig } from "../types.js";
 import {
   listMatrixAccountIds,
@@ -17,6 +18,10 @@ const envKeys = [
   "MATRIX_ACCESS_TOKEN",
   "MATRIX_PASSWORD",
   "MATRIX_DEVICE_NAME",
+  "MATRIX_DEFAULT_HOMESERVER",
+  "MATRIX_DEFAULT_ACCESS_TOKEN",
+  getMatrixScopedEnvVarNames("team-ops").homeserver,
+  getMatrixScopedEnvVarNames("team-ops").accessToken,
 ];
 
 describe("resolveMatrixAccount", () => {
@@ -126,6 +131,48 @@ describe("resolveMatrixAccount", () => {
     };
 
     expect(resolveDefaultMatrixAccountId(cfg)).toBe("ops");
+  });
+
+  it("includes env-backed named accounts in plugin account enumeration", () => {
+    const keys = getMatrixScopedEnvVarNames("team-ops");
+    process.env[keys.homeserver] = "https://matrix.example.org";
+    process.env[keys.accessToken] = "ops-token";
+
+    const cfg: CoreConfig = {
+      channels: {
+        matrix: {},
+      },
+    };
+
+    expect(listMatrixAccountIds(cfg)).toEqual(["team-ops"]);
+    expect(resolveDefaultMatrixAccountId(cfg)).toBe("team-ops");
+  });
+
+  it("includes default accounts backed only by global env vars in plugin account enumeration", () => {
+    process.env.MATRIX_HOMESERVER = "https://matrix.example.org";
+    process.env.MATRIX_ACCESS_TOKEN = "default-token";
+
+    const cfg: CoreConfig = {};
+
+    expect(listMatrixAccountIds(cfg)).toEqual(["default"]);
+    expect(resolveDefaultMatrixAccountId(cfg)).toBe("default");
+  });
+
+  it("treats mixed default and named env-backed accounts as multi-account", () => {
+    const keys = getMatrixScopedEnvVarNames("team-ops");
+    process.env.MATRIX_HOMESERVER = "https://matrix.example.org";
+    process.env.MATRIX_ACCESS_TOKEN = "default-token";
+    process.env[keys.homeserver] = "https://matrix.example.org";
+    process.env[keys.accessToken] = "ops-token";
+
+    const cfg: CoreConfig = {
+      channels: {
+        matrix: {},
+      },
+    };
+
+    expect(listMatrixAccountIds(cfg)).toEqual(["default", "team-ops"]);
+    expect(resolveDefaultMatrixAccountId(cfg)).toBe("default");
   });
 
   it('uses the synthetic "default" account when multiple named accounts need explicit selection', () => {

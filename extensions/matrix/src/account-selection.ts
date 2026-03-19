@@ -4,6 +4,7 @@ import {
   normalizeOptionalAccountId,
 } from "openclaw/plugin-sdk/account-id";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import { listMatrixEnvAccountIds } from "./env-vars.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -37,27 +38,33 @@ export function findMatrixAccountEntry(
   return null;
 }
 
-export function resolveConfiguredMatrixAccountIds(cfg: OpenClawConfig): string[] {
+export function resolveConfiguredMatrixAccountIds(
+  cfg: OpenClawConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
   const channel = resolveMatrixChannelConfig(cfg);
-  if (!channel) {
-    return [];
+  const ids = new Set<string>(listMatrixEnvAccountIds(env));
+
+  const accounts = channel && isRecord(channel.accounts) ? channel.accounts : null;
+  if (accounts) {
+    for (const [accountId, value] of Object.entries(accounts)) {
+      if (isRecord(value)) {
+        ids.add(normalizeAccountId(accountId));
+      }
+    }
   }
 
-  const accounts = isRecord(channel.accounts) ? channel.accounts : null;
-  if (!accounts) {
-    return [DEFAULT_ACCOUNT_ID];
+  if (ids.size === 0 && channel) {
+    ids.add(DEFAULT_ACCOUNT_ID);
   }
 
-  const ids = Object.entries(accounts)
-    .filter(([, value]) => isRecord(value))
-    .map(([accountId]) => normalizeAccountId(accountId));
-
-  return Array.from(new Set(ids.length > 0 ? ids : [DEFAULT_ACCOUNT_ID])).toSorted((a, b) =>
-    a.localeCompare(b),
-  );
+  return Array.from(ids).toSorted((a, b) => a.localeCompare(b));
 }
 
-export function resolveMatrixDefaultOrOnlyAccountId(cfg: OpenClawConfig): string {
+export function resolveMatrixDefaultOrOnlyAccountId(
+  cfg: OpenClawConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   const channel = resolveMatrixChannelConfig(cfg);
   if (!channel) {
     return DEFAULT_ACCOUNT_ID;
@@ -66,7 +73,7 @@ export function resolveMatrixDefaultOrOnlyAccountId(cfg: OpenClawConfig): string
   const configuredDefault = normalizeOptionalAccountId(
     typeof channel.defaultAccount === "string" ? channel.defaultAccount : undefined,
   );
-  const configuredAccountIds = resolveConfiguredMatrixAccountIds(cfg);
+  const configuredAccountIds = resolveConfiguredMatrixAccountIds(cfg, env);
   if (configuredDefault && configuredAccountIds.includes(configuredDefault)) {
     return configuredDefault;
   }
@@ -80,12 +87,15 @@ export function resolveMatrixDefaultOrOnlyAccountId(cfg: OpenClawConfig): string
   return DEFAULT_ACCOUNT_ID;
 }
 
-export function requiresExplicitMatrixDefaultAccount(cfg: OpenClawConfig): boolean {
+export function requiresExplicitMatrixDefaultAccount(
+  cfg: OpenClawConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   const channel = resolveMatrixChannelConfig(cfg);
   if (!channel) {
     return false;
   }
-  const configuredAccountIds = resolveConfiguredMatrixAccountIds(cfg);
+  const configuredAccountIds = resolveConfiguredMatrixAccountIds(cfg, env);
   if (configuredAccountIds.length <= 1) {
     return false;
   }

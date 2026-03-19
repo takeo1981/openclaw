@@ -3,13 +3,12 @@ import {
   hasConfiguredSecretInput,
   normalizeAccountId,
 } from "openclaw/plugin-sdk/matrix";
-import { resolveMatrixDefaultOrOnlyAccountId } from "../account-selection.js";
-import type { CoreConfig, MatrixConfig } from "../types.js";
 import {
-  findMatrixAccountConfig,
-  listNormalizedMatrixAccountIds,
-  resolveMatrixBaseConfig,
-} from "./account-config.js";
+  resolveConfiguredMatrixAccountIds,
+  resolveMatrixDefaultOrOnlyAccountId,
+} from "../account-selection.js";
+import type { CoreConfig, MatrixConfig } from "../types.js";
+import { findMatrixAccountConfig, resolveMatrixBaseConfig } from "./account-config.js";
 import { resolveMatrixConfigForAccount } from "./client.js";
 import { credentialsMatchConfig, loadMatrixCredentials } from "./credentials.js";
 
@@ -40,12 +39,8 @@ export type ResolvedMatrixAccount = {
 };
 
 export function listMatrixAccountIds(cfg: CoreConfig): string[] {
-  const ids = listNormalizedMatrixAccountIds(cfg);
-  if (ids.length === 0) {
-    // Fall back to default if no accounts configured (legacy top-level config)
-    return [DEFAULT_ACCOUNT_ID];
-  }
-  return ids.toSorted((a, b) => a.localeCompare(b));
+  const ids = resolveConfiguredMatrixAccountIds(cfg, process.env);
+  return ids.length > 0 ? ids : [DEFAULT_ACCOUNT_ID];
 }
 
 export function resolveDefaultMatrixAccountId(cfg: CoreConfig): string {

@@ -4,9 +4,7 @@ import {
   DEFAULT_ACCOUNT_ID,
   deleteAccountFromConfigSection,
   formatPairingApproveHint,
-  moveSingleAccountChannelSectionToDefaultAccount,
   normalizeAccountId,
-  normalizeSecretInputString,
   PAIRING_APPROVED_MESSAGE,
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
@@ -28,8 +26,7 @@ import {
   resolveMatrixAccount,
   type ResolvedMatrixAccount,
 } from "./matrix/accounts.js";
-import { resolveMatrixEnvAuthReadiness, resolveMatrixAuth } from "./matrix/client.js";
-import { updateMatrixAccountConfig } from "./matrix/config-update.js";
+import { resolveMatrixAuth } from "./matrix/client.js";
 import { resolveMatrixConfigFieldPath, resolveMatrixConfigPath } from "./matrix/config-update.js";
 import { normalizeMatrixAllowList, normalizeMatrixUserId } from "./matrix/monitor/allowlist.js";
 import { probeMatrix } from "./matrix/probe.js";
@@ -47,6 +44,7 @@ import { matrixOnboardingAdapter } from "./onboarding.js";
 import { matrixOutbound } from "./outbound.js";
 import { resolveMatrixTargets } from "./resolve-targets.js";
 import { runMatrixSetupBootstrapAfterConfigWrite } from "./setup-bootstrap.js";
+import { applyMatrixSetupAccountConfig, validateMatrixSetupInput } from "./setup-config.js";
 import type { CoreConfig } from "./types.js";
 
 // Mutex for serializing account startup (workaround for concurrent dynamic import race condition)
@@ -376,68 +374,15 @@ export const matrixPlugin: ChannelPlugin<ResolvedMatrixAccount> = {
       if (avatarUrl && !isSupportedMatrixAvatarSource(avatarUrl)) {
         return "Matrix avatar URL must be an mxc:// URI or an http(s) URL";
       }
-      if (input.useEnv) {
-        const envReadiness = resolveMatrixEnvAuthReadiness(accountId, process.env);
-        return envReadiness.ready ? null : envReadiness.missingMessage;
-      }
-      if (!input.homeserver?.trim()) {
-        return "Matrix requires --homeserver";
-      }
-      const accessToken = input.accessToken?.trim();
-      const password = input.password?.trim();
-      const userId = input.userId?.trim();
-      if (!accessToken && !password) {
-        return "Matrix requires --access-token or --password";
-      }
-      if (!accessToken) {
-        if (!userId) {
-          return "Matrix requires --user-id when using --password";
-        }
-        if (!password) {
-          return "Matrix requires --password when using --user-id";
-        }
-      }
-      return null;
+      return validateMatrixSetupInput({ accountId, input });
     },
-    applyAccountConfig: ({ cfg, accountId, input }) => {
-      const promoted =
-        normalizeAccountId(accountId) !== DEFAULT_ACCOUNT_ID
-          ? moveSingleAccountChannelSectionToDefaultAccount({
-              cfg: cfg as CoreConfig,
-              channelKey: "matrix",
-            })
-          : (cfg as CoreConfig);
-      const namedConfig = applyAccountNameToChannelSection({
-        cfg: promoted,
-        channelKey: "matrix",
+    applyAccountConfig: ({ cfg, accountId, input }) =>
+      applyMatrixSetupAccountConfig({
+        cfg: cfg as CoreConfig,
         accountId,
-        name: input.name,
-      });
-      const next = namedConfig as CoreConfig;
-      if (input.useEnv) {
-        return updateMatrixAccountConfig(next, accountId, {
-          enabled: true,
-          homeserver: null,
-          userId: null,
-          accessToken: null,
-          password: null,
-          deviceId: null,
-          deviceName: null,
-        });
-      }
-      const accessToken = input.accessToken?.trim();
-      const password = normalizeSecretInputString(input.password);
-      const userId = input.userId?.trim();
-      return updateMatrixAccountConfig(next as CoreConfig, accountId, {
-        homeserver: input.homeserver?.trim(),
-        userId: password && !userId ? null : userId,
-        accessToken: accessToken || (password ? null : undefined),
-        password: password || (accessToken ? null : undefined),
-        deviceName: input.deviceName?.trim(),
+        input,
         avatarUrl: resolveAvatarInput(input),
-        initialSyncLimit: input.initialSyncLimit,
-      });
-    },
+      }),
     afterAccountConfigWritten: async ({ previousCfg, cfg, accountId, runtime }) => {
       await runMatrixSetupBootstrapAfterConfigWrite({
         previousCfg: previousCfg as CoreConfig,

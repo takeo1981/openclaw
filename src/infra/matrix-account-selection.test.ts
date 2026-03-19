@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   findMatrixAccountEntry,
+  getMatrixScopedEnvVarNames,
   requiresExplicitMatrixDefaultAccount,
   resolveConfiguredMatrixAccountIds,
   resolveMatrixDefaultOrOnlyAccountId,
@@ -73,5 +74,51 @@ describe("matrix account selection", () => {
       homeserver: "https://matrix.example.org",
       userId: "@ops:example.org",
     });
+  });
+
+  it("discovers env-backed named Matrix accounts during enumeration", () => {
+    const keys = getMatrixScopedEnvVarNames("team-ops");
+    const cfg: OpenClawConfig = {
+      channels: {
+        matrix: {},
+      },
+    };
+    const env = {
+      [keys.homeserver]: "https://matrix.example.org",
+      [keys.accessToken]: "secret",
+    } satisfies NodeJS.ProcessEnv;
+
+    expect(resolveConfiguredMatrixAccountIds(cfg, env)).toEqual(["team-ops"]);
+    expect(resolveMatrixDefaultOrOnlyAccountId(cfg, env)).toBe("team-ops");
+    expect(requiresExplicitMatrixDefaultAccount(cfg, env)).toBe(false);
+  });
+
+  it("treats mixed default and named env-backed Matrix accounts as multi-account", () => {
+    const keys = getMatrixScopedEnvVarNames("team-ops");
+    const cfg: OpenClawConfig = {
+      channels: {
+        matrix: {},
+      },
+    };
+    const env = {
+      MATRIX_HOMESERVER: "https://matrix.example.org",
+      MATRIX_ACCESS_TOKEN: "default-secret",
+      [keys.homeserver]: "https://matrix.example.org",
+      [keys.accessToken]: "team-secret",
+    } satisfies NodeJS.ProcessEnv;
+
+    expect(resolveConfiguredMatrixAccountIds(cfg, env)).toEqual(["default", "team-ops"]);
+    expect(requiresExplicitMatrixDefaultAccount(cfg, env)).toBe(true);
+  });
+
+  it("discovers default Matrix accounts backed only by global env vars", () => {
+    const cfg: OpenClawConfig = {};
+    const env = {
+      MATRIX_HOMESERVER: "https://matrix.example.org",
+      MATRIX_ACCESS_TOKEN: "default-secret",
+    } satisfies NodeJS.ProcessEnv;
+
+    expect(resolveConfiguredMatrixAccountIds(cfg, env)).toEqual(["default"]);
+    expect(resolveMatrixDefaultOrOnlyAccountId(cfg, env)).toBe("default");
   });
 });
