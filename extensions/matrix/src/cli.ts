@@ -4,7 +4,6 @@ import {
   normalizeAccountId,
   type ChannelSetupInput,
 } from "openclaw/plugin-sdk/matrix";
-import { matrixPlugin } from "./channel.js";
 import { resolveMatrixAccount, resolveMatrixAccountConfig } from "./matrix/accounts.js";
 import { withResolvedActionClient, withStartedActionClient } from "./matrix/actions/client.js";
 import { listMatrixOwnDevices, pruneMatrixStaleGatewayDevices } from "./matrix/actions/devices.js";
@@ -30,6 +29,7 @@ import {
 import { applyMatrixProfileUpdate, type MatrixProfileUpdateResult } from "./profile-update.js";
 import { getMatrixRuntime } from "./runtime.js";
 import { maybeBootstrapNewEncryptedMatrixAccount } from "./setup-bootstrap.js";
+import { matrixSetupAdapter } from "./setup-core.js";
 import type { CoreConfig } from "./types.js";
 
 let matrixCliExitScheduled = false;
@@ -172,8 +172,7 @@ async function addMatrixAccount(params: {
 }): Promise<MatrixCliAccountAddResult> {
   const runtime = getMatrixRuntime();
   const cfg = runtime.config.loadConfig() as CoreConfig;
-  const setup = matrixPlugin.setup;
-  if (!setup?.applyAccountConfig) {
+  if (!matrixSetupAdapter.applyAccountConfig) {
     throw new Error("Matrix account setup is unavailable.");
   }
 
@@ -189,12 +188,12 @@ async function addMatrixAccount(params: {
     useEnv: params.useEnv === true,
   };
   const accountId =
-    setup.resolveAccountId?.({
+    matrixSetupAdapter.resolveAccountId?.({
       cfg,
       accountId: params.account,
       input,
     }) ?? normalizeAccountId(params.account?.trim() || params.name?.trim());
-  const validationError = setup.validateInput?.({
+  const validationError = matrixSetupAdapter.validateInput?.({
     cfg,
     accountId,
     input,
@@ -203,7 +202,7 @@ async function addMatrixAccount(params: {
     throw new Error(validationError);
   }
 
-  const updated = setup.applyAccountConfig({
+  const updated = matrixSetupAdapter.applyAccountConfig({
     cfg,
     accountId,
     input,

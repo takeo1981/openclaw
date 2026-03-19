@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatrixClient } from "../sdk.js";
 import { EventType } from "./types.js";
 
-let resolveMatrixRoomId: typeof import("./targets.js").resolveMatrixRoomId;
-let normalizeThreadId: typeof import("./targets.js").normalizeThreadId;
+const { resolveMatrixRoomId, normalizeThreadId } = await import("./targets.js");
 
-beforeEach(async () => {
-  vi.resetModules();
-  ({ resolveMatrixRoomId, normalizeThreadId } = await import("./targets.js"));
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
 describe("resolveMatrixRoomId", () => {

@@ -32,15 +32,12 @@ vi.mock("./client/shared.js", () => ({
   releaseSharedClientInstance: (...args: unknown[]) => releaseSharedClientInstanceMock(...args),
 }));
 
-let resolveRuntimeMatrixClientWithReadiness: typeof import("./client-bootstrap.js").resolveRuntimeMatrixClientWithReadiness;
-let withResolvedRuntimeMatrixClient: typeof import("./client-bootstrap.js").withResolvedRuntimeMatrixClient;
+const { resolveRuntimeMatrixClientWithReadiness, withResolvedRuntimeMatrixClient } =
+  await import("./client-bootstrap.js");
 
 describe("client bootstrap", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeEach(() => {
     primeMatrixClientResolverMocks({ resolved: {} });
-    ({ resolveRuntimeMatrixClientWithReadiness, withResolvedRuntimeMatrixClient } =
-      await import("./client-bootstrap.js"));
   });
 
   afterEach(() => {

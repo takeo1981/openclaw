@@ -19,18 +19,16 @@ vi.mock("./client.js", () => ({
   withStartedActionClient: (...args: unknown[]) => withStartedActionClientMock(...args),
 }));
 
-let listMatrixVerifications: typeof import("./verification.js").listMatrixVerifications;
+const { listMatrixVerifications } = await import("./verification.js");
 
 describe("matrix verification actions", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeEach(() => {
     vi.clearAllMocks();
     loadConfigMock.mockReturnValue({
       channels: {
         matrix: {},
       },
     });
-    ({ listMatrixVerifications } = await import("./verification.js"));
   });
 
   it("points encryption guidance at the selected Matrix account", async () => {

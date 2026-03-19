@@ -20,11 +20,10 @@ vi.mock("./client.js", () => ({
   withResolvedActionClient: (...args: unknown[]) => withResolvedActionClientMock(...args),
 }));
 
-let updateMatrixOwnProfile: typeof import("./profile.js").updateMatrixOwnProfile;
+const { updateMatrixOwnProfile } = await import("./profile.js");
 
 describe("matrix profile actions", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeEach(() => {
     vi.clearAllMocks();
     loadWebMediaMock.mockResolvedValue({
       buffer: Buffer.from("avatar"),
@@ -39,7 +38,6 @@ describe("matrix profile actions", () => {
       convertedAvatarFromHttp: true,
       uploadedAvatarSource: "http",
     });
-    ({ updateMatrixOwnProfile } = await import("./profile.js"));
   });
 
   it("trims profile fields and persists through the action client wrapper", async () => {

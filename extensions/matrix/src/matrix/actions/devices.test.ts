@@ -6,14 +6,11 @@ vi.mock("./client.js", () => ({
   withStartedActionClient: (...args: unknown[]) => withStartedActionClientMock(...args),
 }));
 
-let listMatrixOwnDevices: typeof import("./devices.js").listMatrixOwnDevices;
-let pruneMatrixStaleGatewayDevices: typeof import("./devices.js").pruneMatrixStaleGatewayDevices;
+const { listMatrixOwnDevices, pruneMatrixStaleGatewayDevices } = await import("./devices.js");
 
 describe("matrix device actions", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeEach(() => {
     vi.clearAllMocks();
-    ({ listMatrixOwnDevices, pruneMatrixStaleGatewayDevices } = await import("./devices.js"));
   });
 
   it("lists own devices on a started client", async () => {

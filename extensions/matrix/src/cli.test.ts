@@ -54,12 +54,10 @@ vi.mock("./matrix/client.js", () => ({
   resolveMatrixAuthContext: (...args: unknown[]) => resolveMatrixAuthContextMock(...args),
 }));
 
-vi.mock("./channel.js", () => ({
-  matrixPlugin: {
-    setup: {
-      applyAccountConfig: (...args: unknown[]) => matrixSetupApplyAccountConfigMock(...args),
-      validateInput: (...args: unknown[]) => matrixSetupValidateInputMock(...args),
-    },
+vi.mock("./setup-core.js", () => ({
+  matrixSetupAdapter: {
+    applyAccountConfig: (...args: unknown[]) => matrixSetupApplyAccountConfigMock(...args),
+    validateInput: (...args: unknown[]) => matrixSetupValidateInputMock(...args),
   },
 }));
 
@@ -72,7 +70,7 @@ vi.mock("./runtime.js", () => ({
   }),
 }));
 
-let registerMatrixCli: typeof import("./cli.js").registerMatrixCli;
+const { registerMatrixCli } = await import("./cli.js");
 
 function buildProgram(): Command {
   const program = new Command();
@@ -85,11 +83,9 @@ function formatExpectedLocalTimestamp(value: string): string {
 }
 
 describe("matrix CLI verification commands", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
-    ({ registerMatrixCli } = await import("./cli.js"));
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     matrixSetupValidateInputMock.mockReturnValue(null);
